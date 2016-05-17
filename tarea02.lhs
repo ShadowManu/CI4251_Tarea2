@@ -83,10 +83,18 @@ y \texttt{Monad} para el tipo \texttt{Functor~f}.
 \begin{lstlisting}
 
 > instance Functor f => Functor (Bonus f) where
+>   fmap g (Malus a) = Malus $ g a
+>   fmap g (Bonus f) = Bonus $ fmap (fmap g) f
 >
 > instance Functor f => Applicative (Bonus f) where
+>   pure = Malus
+>   (Malus g) <*> b = fmap g b
+>   b <*> (Malus a) = Malus ($ a) <*> b
+>   b <*> (Bonus f2) = Bonus $ fmap (b <*>) f2
 >
 > instance Functor f => Monad (Bonus f) where
+>   (Malus a) >>= g = g a
+>   (Bonus f) >>= g = Bonus $ fmap (>>= g) f
 
 \end{lstlisting}
 

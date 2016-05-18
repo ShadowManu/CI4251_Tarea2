@@ -61,6 +61,8 @@
 
 \begin{lstlisting}
 
+> {-# LANGUAGE ScopedTypeVariables #-}
+> {-# LANGUAGE InstanceSigs #-}
 > import Control.Applicative
 
 \end{lstlisting}
@@ -164,7 +166,7 @@ una imagen aproximada -- sobre todo para hacer «pizza debugging».
 \begin{lstlisting}
 
 > instance Show Pizza where
->    show (Eat x)     = " :-P "
+>    show (Eat _)     = " :-P "
 >    show (Combo x y) = " combo(" ++ show x
 >                                 ++ ","
 >                                 ++ show y ++ ") "
@@ -178,7 +180,9 @@ hasta ser feliz.
 \begin{lstlisting}
 
 > want :: Want a -> Pizza
-> want = undefined
+> want (Want m) = m dumb
+>   where
+>     dumb _ = Happy
 
 \end{lstlisting}
 
@@ -189,7 +193,7 @@ suene difícil o inconcebible, a veces uno simplemente es feliz.
 \begin{lstlisting}
 
 > happy :: Want a
-> happy = undefined
+> happy = Want (\_ -> Happy)
 
 \end{lstlisting}
 
@@ -200,7 +204,7 @@ inevitable querer más\ldots
 \begin{lstlisting}
 
 > nomnom :: IO a -> Want a
-> nomnom = undefined
+> nomnom io = Want $ \t -> Eat $ io >>= return . t
 
 \end{lstlisting}
 
@@ -212,7 +216,7 @@ quede nada.
 \begin{lstlisting}
 
 > combo :: Want a -> Want ()
-> combo = undefined
+> combo w = Want $ \t -> Combo (t ()) (t ())
 
 \end{lstlisting}
 
@@ -225,7 +229,7 @@ por partes iguales).
 \begin{lstlisting}
 
 > pana :: Want a -> Want a -> Want a
-> pana = undefined
+> pana w1 w2 = w1 >> w2
 
 \end{lstlisting}
 
@@ -237,7 +241,11 @@ Y cada uno es feliz.
 \begin{lstlisting}
 
 > pizzeria :: [Pizza] -> IO ()
-> pizzeria = undefined
+> pizzeria = sequence_ . map eat
+>   where
+>     eat (Eat io) = io
+>     eat (Combo piz1 piz2) = eat piz1 >> eat piz2
+>     eat _ = error "unexpected eat Happy"
 
 \end{lstlisting}
 
@@ -249,9 +257,19 @@ uno, sólo o acompañado, quiere satisfacer. La pizza no será un
 
 \begin{lstlisting}
 
+Functor y Applicative requeridos en GHC 7.10.3
+
+> instance Functor Want where
+>   fmap = undefined
+>
+> instance Applicative Want where
+>   pure = undefined
+>   (<*>) = undefined
+>
 > instance Monad Want where
->   return x       = undefined
->   (Want f) >>= g = undefined
+>   return x = Want (\t -> t x)
+>   (>>=) :: Want a -> (a -> Want b) -> Want b
+>   (Want m) >>= f = Want $ (\_ -> Combo (m $ const Happy) (m $ want . f))
 
 \end{lstlisting}
 
@@ -295,6 +313,9 @@ y el contenido le hará entender si lo logró.
 >
 > ponle :: String -> Want ()
 > ponle xs = mapM_ (nomnom . putChar) xs
+>
+> main :: IO ()
+> main = tengo hambre
 
 \end{lstlisting}
 }

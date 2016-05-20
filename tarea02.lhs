@@ -180,9 +180,7 @@ hasta ser feliz.
 \begin{lstlisting}
 
 > want :: Want a -> Pizza
-> want (Want m) = m dumb
->   where
->     dumb _ = Happy
+> want (Want m) = m $ const Happy
 
 \end{lstlisting}
 
@@ -193,7 +191,7 @@ suene difícil o inconcebible, a veces uno simplemente es feliz.
 \begin{lstlisting}
 
 > happy :: Want a
-> happy = Want (\_ -> Happy)
+> happy = Want $ const Happy
 
 \end{lstlisting}
 
@@ -216,7 +214,7 @@ quede nada.
 \begin{lstlisting}
 
 > combo :: Want a -> Want ()
-> combo w = Want $ \t -> Combo (t ()) (t ())
+> combo (Want m) = Want $ \_ -> m $ const Happy
 
 \end{lstlisting}
 
@@ -229,7 +227,7 @@ por partes iguales).
 \begin{lstlisting}
 
 > pana :: Want a -> Want a -> Want a
-> pana w1 w2 = w1 >> w2
+> pana (Want m1) (Want m2) = Want $ \t -> Combo (m1 t) (m2 t)
 
 \end{lstlisting}
 
@@ -241,11 +239,11 @@ Y cada uno es feliz.
 \begin{lstlisting}
 
 > pizzeria :: [Pizza] -> IO ()
-> pizzeria = sequence_ . map eat
+> pizzeria = mapM_ eat
 >   where
->     eat (Eat io) = io
->     eat (Combo piz1 piz2) = eat piz1 >> eat piz2
->     eat _ = error "unexpected eat Happy"
+>     eat (Eat io) = io >>= pizzeria . (:[])
+>     eat (Combo piz1 piz2) = pizzeria [piz1, piz2]
+>     eat (Happy) = return ()
 
 \end{lstlisting}
 
@@ -261,15 +259,16 @@ Functor y Applicative requeridos en GHC 7.10.3
 
 > instance Functor Want where
 >   fmap = undefined
->
 > instance Applicative Want where
 >   pure = undefined
 >   (<*>) = undefined
->
 > instance Monad Want where
->   return x = Want (\t -> t x)
+>   return _ = happy
 >   (>>=) :: Want a -> (a -> Want b) -> Want b
->   (Want m) >>= f = Want $ (\_ -> Combo (m $ const Happy) (m $ want . f))
+>   (Want m) >>= f = Want $ \tb -> m $ (ta tb)
+>     where
+>       ta = flip (getWant . f)
+>       getWant (Want mak) = mak
 
 \end{lstlisting}
 

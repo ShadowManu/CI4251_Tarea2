@@ -232,7 +232,7 @@ por partes iguales).
 \begin{lstlisting}
 
 > pana :: Want a -> Want a -> Want a
-> pana (Want m1) (Want m2) = Want $ \t -> Combo (m1 t) (m2 t)
+> pana m1 m2 = Want $ \t -> Combo (fromWant m1 t) (fromWant m2 t)
 
 \end{lstlisting}
 

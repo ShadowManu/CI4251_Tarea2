@@ -143,6 +143,10 @@ tema y es que \textbf{necesito} pizza\ldots
 \begin{lstlisting}
 
 > data Want a = Want ((a -> Pizza) -> Pizza)
+>
+> -- External helper to avoid modifying original data definition
+> fromWant :: Want a -> (a -> Pizza) -> Pizza
+> fromWant (Want m) = m
 
 \end{lstlisting}
 
@@ -155,6 +159,7 @@ pero de todas todas, al final uno queda feliz.
 > data Pizza = Eat (IO Pizza)
 >            | Combo Pizza Pizza
 >            | Happy
+>
 
 \end{lstlisting}
 
@@ -180,7 +185,7 @@ hasta ser feliz.
 \begin{lstlisting}
 
 > want :: Want a -> Pizza
-> want (Want m) = m $ const Happy
+> want m = fromWant m $ const Happy
 
 \end{lstlisting}
 
@@ -214,7 +219,7 @@ quede nada.
 \begin{lstlisting}
 
 > combo :: Want a -> Want ()
-> combo (Want m) = Want $ \_ -> m $ const Happy
+> combo m = Want $ \k -> Combo (want m) (k ())
 
 \end{lstlisting}
 
@@ -239,11 +244,10 @@ Y cada uno es feliz.
 \begin{lstlisting}
 
 > pizzeria :: [Pizza] -> IO ()
-> pizzeria = mapM_ eat
->   where
->     eat (Eat io) = io >>= pizzeria . (:[])
->     eat (Combo piz1 piz2) = pizzeria [piz1, piz2]
->     eat (Happy) = return ()
+> pizzeria [] = putStrLn ""
+> pizzeria ((Eat io) : ps) = io >>= \p -> pizzeria (ps ++ [p])
+> pizzeria ((Combo p1 p2) : ps) = pizzeria (ps ++ [p1, p2])
+> pizzeria (Happy : ps) = pizzeria ps
 
 \end{lstlisting}
 
@@ -255,8 +259,7 @@ uno, sólo o acompañado, quiere satisfacer. La pizza no será un
 
 \begin{lstlisting}
 
-Functor y Applicative requeridos en GHC 7.10.3
-
+> -- Definicion de Functor y Applicative requeridos en GHC 7.10.3
 > instance Functor Want where
 >   fmap = undefined
 > instance Applicative Want where
@@ -265,10 +268,7 @@ Functor y Applicative requeridos en GHC 7.10.3
 > instance Monad Want where
 >   return _ = happy
 >   (>>=) :: Want a -> (a -> Want b) -> Want b
->   (Want m) >>= f = Want $ \tb -> m $ (ta tb)
->     where
->       ta = flip (getWant . f)
->       getWant (Want mak) = mak
+>   m >>= f = Want $ \k -> fromWant m $ \x -> fromWant (f x) k
 
 \end{lstlisting}
 
@@ -312,9 +312,6 @@ y el contenido le hará entender si lo logró.
 >
 > ponle :: String -> Want ()
 > ponle xs = mapM_ (nomnom . putChar) xs
->
-> main :: IO ()
-> main = tengo hambre
 
 \end{lstlisting}
 }

@@ -3,7 +3,7 @@
 
   Programación Funcional Avanzada (CI4251)
 
-  0.42 2012-05-14 
+  0.42 2012-05-14
   0.41 2010-05-09
 
 
@@ -20,20 +20,21 @@
   adecuadas en las acciones monádicas.
 
   Para aprovechar este módulo en Debian GNU/Linux Squeeze
-  
-    @aptitude install libghc6-hgl-dev libghc6-mtl-dev@ 
+
+    @aptitude install libghc6-hgl-dev libghc6-mtl-dev@
 -}
-  
+
 module LogoMachine (
   -- * Tipos exportados.
-	-- ** Instrucciones de bajo nivel de la Máquina Logo.
+  -- ** Instrucciones de bajo nivel de la Máquina Logo.
   LogoProgram (..),
-	-- * Funciones exportadas.
-	-- ** Ejecutar instrucciones de la Máquina Logo con salida gráfica.
+  -- * Funciones exportadas.
+  -- ** Ejecutar instrucciones de la Máquina Logo con salida gráfica.
   runLogoProgram
-) 
+)
 where
 
+import Prelude hiding (seq)
 import Control.Monad.State
 import Data.Char
 import Data.Sequence as DS
@@ -53,7 +54,7 @@ import qualified Graphics.HGL as G
   arbitrario usando el color del lápiz actual, el cual aparecerá
   horizontalmente a la izquierda de la posición actual,
   independientemente de la orientación.
-		
+
   Nótese que además de las instrucciones atómicas fundamentales,
   también se dispone de la instrucción de Secuenciación y la
   instrucción de Iteración Determinada.
@@ -83,8 +84,20 @@ data LogoProgram = Fd Int                       -- ^ Avanzar N pasos.
    de la Máquina Virtual Logo, a ser aprovechado en la fase de
    conversión de instrucción hacia acciones monádicas.
  -}
+foldLP :: (Int -> b)
+       -> (Int -> b)
+       -> (Int -> b)
+       -> (Int -> b)
+       -> b
+       -> b
+       -> (String -> b)
+       -> (String -> b)
+       -> b
+       -> (Seq b -> b)
+       -> (Int -> Seq b -> b)
+       -> LogoProgram -> b
 foldLP a b c d e f g h i j k inst =
-  case inst of 
+  case inst of
     (Fd n)    -> a n
     (Bk n)    -> b n
     (Rt n)    -> c n
@@ -120,7 +133,7 @@ validColors = DM.fromList [
    color en el tipo de datos Color necesario para dibujar. En caso
    que la cadena a buscar no corresponda a un color definido por la
    Máquina Virtual Logo, la ejecución aborta con un error.
- -} 
+ -}
 toColor :: String -> G.Color
 toColor s =
   case f of
@@ -135,10 +148,10 @@ toColor s =
    cuando debe comenzar y cuando termina un nuevo polígono o
    primitiva de texto.
  -}
-data Figure = Poly G.Color [G.Point] 
-			| Text G.Color G.Point String
-            | Empty
-            deriving (Show,Eq)
+data Figure = Poly G.Color [G.Point]
+  | Text G.Color G.Point String
+  | Empty
+  deriving (Show,Eq)
 
 {-
    Modelo de Estado para la Máquina Virtual Logo, aprovechado
@@ -170,7 +183,7 @@ pu = do
                            (ds :> Empty) -> ds
                            _             -> drw s
                          where d = DS.viewr $ drw s
-  
+
     Up   -> put $ s
 
 {- @pd@ -- Transformación de estado para bajar el lápiz -}
@@ -192,7 +205,7 @@ say :: String -> State LogoState ()
 say m = do
   s <- get
   case pns s of
-    Down -> case d of 
+    Down -> case d of
               (ds :> Empty) -> put $ s { drw = ds      |> t }
               _             -> put $ s { drw = (drw s) |> t }
             where d = DS.viewr $ drw s
@@ -213,9 +226,9 @@ bk n = get >>= put . moveForward (negate n)
 moveForward :: Int -> LogoState -> LogoState
 moveForward n s | pns s == Up = s { pos = move (pos s) n (dir s) }
 moveForward n s =
-  case d of 
+  case d of
     (ds :> Empty)     -> s { pos = np, drw = ds |> t}
-    (ds :> Poly pc l) -> if (pc == cc) 
+    (ds :> Poly pcol l) -> if (pcol == cc)
                          then s { pos = np, drw = ds |> Poly cc (np:l)  }
                          else s { pos = np, drw = drw s |> t  }
     _                 -> s { pos = np, drw = drw s |> t  }
@@ -224,13 +237,13 @@ moveForward n s =
           d  = DS.viewr $ drw s
           np = move cp n (dir s)
           t  = Poly cc [ np, cp ]
-    
+
 move :: G.Point -> Int -> Direction -> G.Point
 move (x,y) n d =
-  let direc  = (pi * (fromIntegral d)) / 180
-      nn     = fromIntegral n
-      nx     = x + (round (nn * (cos direc)))
-      ny     = y + (round (nn * (sin direc)))
+  let direc  = (pi * fromIntegral d) / 180
+      nn     = fromIntegral n :: Double
+      nx     = x + round (nn * cos direc)
+      ny     = y + round (nn * sin direc)
   in (nx,ny)
 
 {- @lt@ -- Transformación de estado para girar @n@ grados a la izquierda -}
@@ -267,13 +280,14 @@ initial = LogoState { pos = (0,0),
 {- @repN@ -- Transformación de estado para repetir @n@ veces
    una transformación de estado particular. -}
 repN :: Int -> State LogoState () -> State LogoState ()
-repN 0 p = noop
-repN n p = p >> (repN (pred n) p)
+repN 0 _ = noop
+repN n p = p >> repN (pred n) p
 
 {- @monadicPlot@ -- Aplica un catamorfismo (fold) sobre la estructura
    de datos que representa un programa para la Máquina Virtual Logo,
    de manera que lo transforma en la secuencia de transformaciones de
    estado correspondientes a su interpretación. -}
+monadicPlot :: LogoProgram -> State LogoState ()
 monadicPlot = foldLP fd bk rt lt pu pd pc say home seq rep
   where seq s   = if DS.null s then noop else DF.sequence_ s
         rep n s = repN n (seq s)
@@ -302,20 +316,21 @@ runLogoProgram :: Int         -- ^ Anchura en pixels de la ventana.
                -> String      -- ^ Título para la ventana.
                -> LogoProgram -- ^ Instrucciones de la Máquina Logo.
                -> IO ()
-runLogoProgram w h t p = 
+runLogoProgram w h t p =
     G.runGraphics $ do
       window <- G.openWindow t (w,h)
       G.drawInWindow window $ G.overGraphics (
-        let f (Poly c p)   = G.withColor c $ G.polyline (map fix p)
-            f (Text c p s) = G.withColor c $ G.text (fix p) s
+        let f (Poly c path)   = G.withColor c $ G.polyline (map fixup path)
+            f (Text c path s) = G.withColor c $ G.text (fixup path) s
+            f _ = error "unexpected"
             (x0,y0)        = origin w h
-            fix (x,y)      = (x0 + x, y0 - y)
+            fixup (x,y)      = (x0 + x, y0 - y)
         in DF.toList $ fmap f (drw (execState (monadicPlot p) initial))
         )
-      G.getKey window
+      _ <- G.getKey window
       G.closeWindow window
 
+origin :: Int -> Int -> (Int, Int)
 origin w h = (half w, half h)
              where
-               half i = round ((fromIntegral i)/2)
-
+               half i = round (fromIntegral i / 2 :: Double)

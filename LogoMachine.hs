@@ -30,7 +30,7 @@ module LogoMachine (
   LogoProgram (..),
   -- * Funciones exportadas.
   -- ** Ejecutar instrucciones de la Máquina Logo con salida gráfica.
-  runLogoProgram
+  -- runLogoProgram -- TODO READD
 )
 where
 
@@ -41,6 +41,9 @@ import Data.Sequence as DS
 import Data.Foldable as DF
 import qualified Data.Map     as DM
 import qualified Graphics.HGL as G
+
+import Control.Monad.Trans.RWS (RWST, execRWST)
+import Control.Monad.Trans.Except (ExceptT, runExceptT)
 
 {-
   El tipo de datos @LogoProgram@ representa las instrucciones
@@ -169,12 +172,21 @@ data LogoState = LogoState {
    drw :: DS.Seq Figure
 } deriving (Show)
 
+-- New Types to support new operations
+type ExceptMonad = ExceptT String IO
+
+type MReader = DM.Map String G.Color
+type MWriter = ()
+type MState = LogoState
+
+type NewMonad = RWST MReader MWriter MState ExceptMonad ()
+
 {- @noop@ -- Transformación de estado que no hace nada -}
-noop :: State LogoState ()
+noop :: NewMonad
 noop = return ()
 
 {- @pu@ -- Transformación de estado para subir el lápiz -}
-pu :: State LogoState ()
+pu :: NewMonad
 pu = do
   s <- get
   case pns s of
@@ -187,7 +199,7 @@ pu = do
     Up   -> put $ s
 
 {- @pd@ -- Transformación de estado para bajar el lápiz -}
-pd :: State LogoState ()
+pd :: NewMonad
 pd = do
   s <- get
   case pns s of
@@ -195,13 +207,13 @@ pd = do
     Up   -> put $ s { pns = Down, drw = (drw s) |> Empty }
 
 {- @pd@ -- Transformación de estado para cambiar el color del lápiz -}
-pc :: String -> State LogoState ()
+pc :: String -> NewMonad
 pc c = do
   s <- get
   put $ s { pnc = toColor c }
 
 {- @say@ -- Transformación de estado para emitir mensaje de texto -}
-say :: String -> State LogoState ()
+say :: String -> NewMonad
 say m = do
   s <- get
   case pns s of
@@ -213,11 +225,11 @@ say m = do
     Up   -> put $ s
 
 {- @fd@ -- Transformación de estado para avanzar @n@ pasos -}
-fd :: Int -> State LogoState ()
+fd :: Int -> NewMonad
 fd n = get >>= put . moveForward n
 
 {- @bk@ -- Transformación de estado para retroceder @n@ pasos -}
-bk :: Int -> State LogoState ()
+bk :: Int -> NewMonad
 bk n = get >>= put . moveForward (negate n)
 
 {- @moveForward@ -- Función auxiliar para @fd@ y @bk@ encargada
@@ -247,11 +259,11 @@ move (x,y) n d =
   in (nx,ny)
 
 {- @lt@ -- Transformación de estado para girar @n@ grados a la izquierda -}
-lt :: Int -> State LogoState ()
+lt :: Int -> NewMonad
 lt n = get >>= put . turnLeft n
 
 {- @rt@ -- Transformación de estado para girar @n@ grados a la derecha -}
-rt :: Int -> State LogoState ()
+rt :: Int -> NewMonad
 rt n = get >>= put . turnLeft (negate n)
 
 {- @turnLeft@ -- Función auxiliar para @lt@ y @rt@ encargada de calcular
@@ -260,11 +272,11 @@ turnLeft :: Int -> LogoState -> LogoState
 turnLeft n s = s { dir = (dir s + n) `mod` 360 }
 
 {- @home@ -- Transformación de estado para regresar al estado inicial -}
-home :: State LogoState ()
+home :: NewMonad
 home = put $ initial
 
 {- @goHome@ -- Transformación de estado para regrear al origen -}
-goHome :: State LogoState ()
+goHome :: NewMonad
 goHome = do
   s <- get
   put $ s { pos = (0,0), dir = 90 }
@@ -279,58 +291,58 @@ initial = LogoState { pos = (0,0),
 
 {- @repN@ -- Transformación de estado para repetir @n@ veces
    una transformación de estado particular. -}
-repN :: Int -> State LogoState () -> State LogoState ()
+repN :: Int -> NewMonad -> NewMonad
 repN 0 _ = noop
 repN n p = p >> repN (pred n) p
 
 {- @monadicPlot@ -- Aplica un catamorfismo (fold) sobre la estructura
-   de datos que representa un programa para la Máquina Virtual Logo,
-   de manera que lo transforma en la secuencia de transformaciones de
-   estado correspondientes a su interpretación. -}
-monadicPlot :: LogoProgram -> State LogoState ()
+  de datos que representa un programa para la Máquina Virtual Logo,
+  de manera que lo transforma en la secuencia de transformaciones de
+  estado correspondientes a su interpretación. -}
+monadicPlot :: LogoProgram -> NewMonad
 monadicPlot = foldLP fd bk rt lt pu pd pc say home seq rep
-  where seq s   = if DS.null s then noop else DF.sequence_ s
-        rep n s = repN n (seq s)
+ where seq s   = if DS.null s then noop else DF.sequence_ s
+       rep n s = repN n (seq s)
 
 {-|
-  La función @runLogoProgram@ interpreta un programa escrito con
-  las instrucciones de la Máquina Logo, produciendo la salida
-  gráfica asociada.
+ La función @runLogoProgram@ interpreta un programa escrito con
+ las instrucciones de la Máquina Logo, produciendo la salida
+ gráfica asociada.
 
-  El programa abrirá una ventana con las dimensiones y el título
-  suministrados como argumentos, se posicionará la tortuga
-  en el centro de la ventana correspondiente a la coordenada (0,0),
-  apuntando hacia el tope de la pantalla (90 grados), con el lápiz
-  blanco levantado.
+ El programa abrirá una ventana con las dimensiones y el título
+ suministrados como argumentos, se posicionará la tortuga
+ en el centro de la ventana correspondiente a la coordenada (0,0),
+ apuntando hacia el tope de la pantalla (90 grados), con el lápiz
+ blanco levantado.
 
-  Se convertirá el programa en la secuencia de transformación de
-  estado correspondiente, siendo interpretado hasta obtener el
-  estado final. La geometría calculada como parte de esta transformación
-  será extraída, convertida a las primitivas gráficas correspondientes
-  en HGL y aplicadas sobre la ventana. Una vez representadas las
-  acciones gráficas, el programa espera hasta que se oprima cualquier
-  tecla para terminar la ejecución cerrando la ventana.
- -}
-runLogoProgram :: Int         -- ^ Anchura en pixels de la ventana.
-               -> Int         -- ^ Altura en pixels de la ventana.
-               -> String      -- ^ Título para la ventana.
-               -> LogoProgram -- ^ Instrucciones de la Máquina Logo.
-               -> IO ()
-runLogoProgram w h t p =
-    G.runGraphics $ do
-      window <- G.openWindow t (w,h)
-      G.drawInWindow window $ G.overGraphics (
-        let f (Poly c path)   = G.withColor c $ G.polyline (map fixup path)
-            f (Text c path s) = G.withColor c $ G.text (fixup path) s
-            f _ = error "unexpected"
-            (x0,y0)        = origin w h
-            fixup (x,y)      = (x0 + x, y0 - y)
-        in DF.toList $ fmap f (drw (execState (monadicPlot p) initial))
-        )
-      _ <- G.getKey window
-      G.closeWindow window
+ Se convertirá el programa en la secuencia de transformación de
+ estado correspondiente, siendo interpretado hasta obtener el
+ estado final. La geometría calculada como parte de esta transformación
+ será extraída, convertida a las primitivas gráficas correspondientes
+ en HGL y aplicadas sobre la ventana. Una vez representadas las
+ acciones gráficas, el programa espera hasta que se oprima cualquier
+ tecla para terminar la ejecución cerrando la ventana.
+-}
+-- runLogoProgram :: Int         -- ^ Anchura en pixels de la ventana.
+--               -> Int         -- ^ Altura en pixels de la ventana.
+--               -> String      -- ^ Título para la ventana.
+--               -> LogoProgram -- ^ Instrucciones de la Máquina Logo.
+--               -> IO ()
+-- runLogoProgram w h t p =
+--    G.runGraphics $ do
+--      window <- G.openWindow t (w,h)
+--      G.drawInWindow window $ G.overGraphics (
+--        let f (Poly c path)   = G.withColor c $ G.polyline (map fixup path)
+--            f (Text c path s) = G.withColor c $ G.text (fixup path) s
+--            f _ = error "unexpected"
+--            (x0,y0)        = origin w h
+--            fixup (x,y)      = (x0 + x, y0 - y)
+--        in DF.toList $ fmap f ((drw (execRWST (monadicPlot p) validColors initial)))
+--        )
+--      _ <- G.getKey window
+--      G.closeWindow window
 
 origin :: Int -> Int -> (Int, Int)
 origin w h = (half w, half h)
-             where
-               half i = round (fromIntegral i / 2 :: Double)
+            where
+              half i = round (fromIntegral i / 2 :: Double)
